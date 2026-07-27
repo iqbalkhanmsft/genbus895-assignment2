@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import pickle
 
-# Load model and encoder once at startup
 @st.cache_resource
 def load_artifacts():
     with open("churn_rf_healthy_meals.pkl", "rb") as f:
@@ -16,26 +15,45 @@ model, encoder = load_artifacts()
 st.title("Customer Renewal Probability Predictor")
 st.write("Enter customer attributes to predict renewal/churn likelihood.")
 
-age = st.number_input("Age", min_value=18, max_value=100, value=35)
-income_level = st.radio("Income Level", ["Low", "Medium", "High", "Very High"])
-education = st.radio("Education", ["Graduate", "High School", "Other", "Post-Graduate"])
-device_type = st.radio("Device Type", ["Desktop-only", "Mobile-only", "Multi-device"])
-tech_comfort_score = st.number_input("Tech Comfort Score", min_value=1, max_value=10, value=5)
+# --- defaults for reset ---
+DEFAULTS = {
+    "age": 35,
+    "income_level": "Medium",
+    "education": "Graduate",
+    "device_type": "Multi-device",
+    "tech_comfort_score": 5,
+    "active_quarters": 2,
+    "total_sessions": 20,
+    "total_session_length": 300,
+    "total_active_days": 25,
+}
 
-# Activity features required by your trained model
-active_quarters = st.number_input("Active Quarters (2022)", min_value=0, max_value=4, value=2)
-total_sessions = st.number_input("Total Sessions (2022)", min_value=0, value=20)
-total_session_length = st.number_input("Total Session Length (2022 minutes)", min_value=0, value=300)
-total_active_days = st.number_input("Total Active Days (2022)", min_value=0, max_value=366, value=25)
+for k, v in DEFAULTS.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
+
+# --- reset button ---
+if st.button("Reset to sample customer"):
+    for k, v in DEFAULTS.items():
+        st.session_state[k] = v
+    st.rerun()
+
+# --- grouped sections ---
+st.subheader("Demographics")
+age = st.number_input("Age", min_value=18, max_value=100, key="age")
+income_level = st.radio("Income Level", ["Low", "Medium", "High", "Very High"], key="income_level")
+education = st.radio("Education", ["Graduate", "High School", "Other", "Post-Graduate"], key="education")
+device_type = st.radio("Device Type", ["Desktop-only", "Mobile-only", "Multi-device"], key="device_type")
+tech_comfort_score = st.number_input("Tech Comfort Score", min_value=1, max_value=10, key="tech_comfort_score")
+
+st.subheader("2022 Activity")
+active_quarters = st.number_input("Active Quarters (2022)", min_value=0, max_value=4, key="active_quarters")
+total_sessions = st.number_input("Total Sessions (2022)", min_value=0, key="total_sessions")
+total_session_length = st.number_input("Total Session Length (2022 minutes)", min_value=0, key="total_session_length")
+total_active_days = st.number_input("Total Active Days (2022)", min_value=0, max_value=366, key="total_active_days")
 
 if st.button("Predict"):
-    # Optional value normalization to match Snowflake training data values
-    income_map = {
-        "Low": "low",
-        "Medium": "medium",
-        "High": "high",
-        "Very High": "very high",
-    }
+    income_map = {"Low": "low", "Medium": "medium", "High": "high", "Very High": "very high"}
     education_map = {
         "Graduate": "graduate",
         "High School": "high school",
@@ -43,26 +61,17 @@ if st.button("Predict"):
         "Post-Graduate": "post graduate",
     }
 
-    # Build categorical DataFrame with exact feature names expected by encoder
     raw = pd.DataFrame([{
         "EDUCATION": education_map[education],
         "INCOME_LEVEL": income_map[income_level],
         "DEVICE_TYPE": device_type,
     }])
 
-    # Force exact training column order for encoder
     raw = raw[encoder.feature_names_in_]
-
-    # Transform categories using saved encoder
     encoded = encoder.transform(raw)
-    encoded_df = pd.DataFrame(
-        encoded,
-        columns=encoder.get_feature_names_out(encoder.feature_names_in_)
-    )
+    encoded_df = pd.DataFrame(encoded, columns=encoder.get_feature_names_out(encoder.feature_names_in_))
 
-    avg_sessions_per_active_quarter = (
-        total_sessions / active_quarters if active_quarters > 0 else 0
-    )
+    avg_sessions_per_active_quarter = total_sessions / active_quarters if active_quarters > 0 else 0
 
     numeric_df = pd.DataFrame([{
         "AGE": age,
@@ -76,7 +85,6 @@ if st.button("Predict"):
 
     input_df = pd.concat([numeric_df, encoded_df], axis=1)
 
-    # Force exact model feature order
     if hasattr(model, "feature_names_in_"):
         input_df = input_df.reindex(columns=model.feature_names_in_, fill_value=0)
 
